@@ -19,8 +19,7 @@ if __name__ == '__main__':
         df = instrument.df.copy()
         startdate, enddate = instrument.date_range()
         if not all([startdate, enddate]):
-            # continue
-            pass
+            continue
 
         # history = load_history(instrument, startdate, enddate, INTERVAL, readcache=False, writecache=True)
         history = load_history(instrument, startdate, enddate, INTERVAL, readcache=True, writecache=False)
@@ -45,12 +44,14 @@ if __name__ == '__main__':
         dfs.append(df)
         article_dfs.append(article_df)
 
+        ## save as csv
         # df.to_csv(f'./data/{instrument.id}_df.csv')
         # article_df.to_csv(f'./data/{instrument.id}_article_df.csv')
     
-    for history in histories:
-        history.load_text()
-        history.cache()
+    ## download article contents
+    # for history in histories:
+    #     history.load_text()
+    #     history.cache()
 
     
 

@@ -26,9 +26,12 @@ class Instrument:
     def qstr(self):
         return self.shortname
 
-    def readcache(self):
-        d = cache.readcache(f'{self.__class__.__name__}_{self.id}')
-        self.__dict__.update(d)
+    @staticmethod
+    def readcache(symbol):
+        instrument = Instrument(symbol)
+        d = cache.readcache(f'{Instrument.__name__}_{instrument.id}')
+        instrument.__dict__.update(d)
+        return instrument
     
     def cache(self):
         cache.writecache(f'{self.__class__.__name__}_{self.id}', self.__dict__)
@@ -51,8 +54,7 @@ def load_instruments(startdate, enddate, readcache=True, writecache=False):
         query = f'{Instrument.__name__}'
         for objname in cache.listcache(query):
             symbol = objname.split('_')[1]
-            instrument = Instrument(symbol=symbol)
-            instrument.readcache()
+            instrument = Instrument.readcache(symbol)
             instruments.append(instrument)
         return instruments
 
