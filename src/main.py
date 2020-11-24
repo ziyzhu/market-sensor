@@ -12,11 +12,12 @@ if __name__ == '__main__':
     # instruments = load_instruments(START_DATE, END_DATE, readcache=False, writecache=True)
     instruments = load_instruments(START_DATE, END_DATE, readcache=True, writecache=False)
 
-    dfs = []
+    joined_dfs = []
     article_dfs = []
     histories = []
+
     for instrument in instruments:
-        df = instrument.df.copy()
+        instrument_df = instrument.df.copy()
         startdate, enddate = instrument.date_range()
         if not all([startdate, enddate]):
             continue
@@ -35,23 +36,21 @@ if __name__ == '__main__':
 
         article_df = pd.DataFrame.from_dict(articles_dict).set_index('link', drop=False, verify_integrity=True)
         article_series = article_df.groupby('published')['link'].apply(list).rename('links')
-        merged_df = pd.merge(instrument.df, article_series, left_index=True, right_index=True, how='left')
+        joined_df = pd.merge(instrument_df, article_series, left_index=True, right_index=True, how='left')
+        joined_df = merged_df[['Open', 'links']].replace({np.nan: None})
 
-        df = merged_df[['Open', 'links']].replace({np.nan: None})
-
-        df.name = instrument.id
+        joined_df.name = instrument.id
         article_df.name = instrument.id
-        dfs.append(df)
+
+        joined_dfs.append(joined_df)
         article_dfs.append(article_df)
 
-        ## save as csv
+        # save as csv
         # df.to_csv(f'./data/{instrument.id}_df.csv')
         # article_df.to_csv(f'./data/{instrument.id}_article_df.csv')
     
-    ## download article contents
+    # download article contents (takes about 8 hours)
     # for history in histories:
     #     history.load_text()
     #     history.cache()
-
-    
 

@@ -20,6 +20,15 @@ def formatdt(dt):
         return dt.strftime('%Y-%m-%d')
     return ''
 
+def gn_search(q, fromtime, totime):
+    sleep(random.uniform(0.4, 0.6))
+    url = "https://google-news.p.rapidapi.com/v1/search"
+    headers = HEADERS
+    qstring = {"q": q, "from": fromtime, "to": totime, "country": "US", "lang": "en"}
+    response = requests.get(url, headers=headers, params=qstring)
+    search = json.loads(response.text)
+    return search
+
 class ArticleHistory:
     def __init__(self, instrument_id=None, startdate=None, enddate=None):
         self.instrument_id = instrument_id
@@ -30,15 +39,13 @@ class ArticleHistory:
     def add(self, group):
         self.groups.append(group)
     
-    def load_text(self):
-        fails = 0
+    def load_text(self, refresh=False):
         for group in tqdm(self.groups):
             try:
-                group.load_text(refresh=False)
+                group.load_text(refresh=refresh)
             except Exception as e:
                 print(e)
-                fails += 1
-        return fails
+        return 
 
     def get_aligned_articles(self):
         aligned = []
@@ -108,13 +115,12 @@ class ArticleGroup:
         for np_article, article in zip(np_articles, self.search['articles']):
             try:
                 np_article.parse()
-            except:
+            except Exception as e:
+                print(e)
                 continue
             article['text'] = np_article.text
             article['keywords'] = np_article.keywords
             article['summary'] = np_article.summary
-        
-        total = len(self.search['articles'])
         return 
         
     def get_articles(self, ordered=True):
@@ -123,7 +129,8 @@ class ArticleGroup:
             published = datetime.strptime(article['published'], '%a, %d %b %Y %H:%M:%S %Z')
             article['published'] = published.replace(hour=0, minute=0, second=0, microsecond=0)
             parsed.append(article)
-        parsed.sort(key=lambda k: k['published'])
+        if ordered:
+            parsed.sort(key=lambda k: k['published'])
         return parsed
     
     @staticmethod
@@ -141,15 +148,6 @@ class ArticleGroup:
         n_articles = len(self.search['articles'])
         return f'ArticleGroup(instrument_id={self.instrument_id}, startdate={startdate_str}, enddate={enddate_str}, search={n_articles})'
 
-def gn_search(q, fromtime, totime):
-    sleep(random.uniform(0.4, 0.6))
-    url = "https://google-news.p.rapidapi.com/v1/search"
-    headers = HEADERS
-    qstring = {"q": q, "from": fromtime, "to": totime, "country": "US", "lang": "en"}
-    response = requests.get(url, headers=headers, params=qstring)
-    search = json.loads(response.text)
-    return search
-
 def load_history(instrument, startdate, enddate, interval, readcache=True, writecache=False):
     if readcache:
         history = ArticleHistory.readcache(instrument.id)
@@ -165,6 +163,7 @@ def load_history(instrument, startdate, enddate, interval, readcache=True, write
             print(e)
             sleep(1)
             continue
+        print(group)
         history.add(group)
         history.enddate += interval
 

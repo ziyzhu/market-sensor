@@ -9,7 +9,7 @@ import yfinance as yf
 TICKERS_PATH = '../data/tickers.json' 
 
 class Instrument:
-    def __init__(self, symbol, shortname=None, info=None):
+    def __init__(self, symbol=None, shortname=None, info=None):
         self.id = symbol
         self.symbol = symbol
         self.shortname = shortname
@@ -27,15 +27,23 @@ class Instrument:
         return self.shortname
 
     @staticmethod
-    def readcache(symbol):
-        instrument = Instrument(symbol)
-        d = cache.readcache(f'{Instrument.__name__}_{instrument.id}')
-        instrument.__dict__.update(d)
-        return instrument
+    def readcache(instrument_id):
+        d = cache.readcache(f'{Instrument.__name__}_{instrument_id}')
+        instrument = Instrument.from_dict(d)
+       return instrument
     
     def cache(self):
-        cache.writecache(f'{self.__class__.__name__}_{self.id}', self.__dict__)
-
+        cache.writecache(f'{self.__class__.__name__}_{self.id}', self.to_dict())
+    
+    def to_dict(self):
+        return self.__dict__
+    
+    @staticmethod
+    def from_dict(d):
+        instrument = Instrument()
+        instrument.__dict__.update(d)
+        return instrument
+        
     def __repr__(self):
         return f'Instrument(id={self.id}, symbol={self.symbol}, shortname={self.shortname})'
 
