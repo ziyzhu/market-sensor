@@ -6,10 +6,10 @@ from time import sleep
 import random 
 import requests, json
 import cache
-from stock import *
+from instrument import *
 
 HEADERS = None
-with open('../headers.json', 'r') as f:
+with open('./rapidkeys.json', 'r') as f:
     HEADERS = json.load(f)
     if not HEADERS:
         message = '''Missing Rapid API credentials'''
@@ -36,9 +36,17 @@ class ArticleHistory:
         self.enddate = enddate
         self.groups = []
     
-    def add(self, group):
+    def add_group(self, group):
         self.groups.append(group)
-    
+
+    def get_aligned_articles(self):
+        aligned = []
+        for group in self.groups:
+            articles = group.search['articles'].copy()
+            aligned.extend(articles)
+        aligned.sort(key=lambda article: article['published'])
+        return aligned
+
     def load_text(self, refresh=False):
         for group in tqdm(self.groups):
             try:
@@ -47,12 +55,30 @@ class ArticleHistory:
                 print(e)
         return 
 
-    def get_aligned_articles(self):
-        aligned = []
-        for group in self.groups:
-            articles = group.get_articles(ordered=True)
-            aligned.extend(articles)
-        return aligned
+    @staticmethod
+    def load_history(instrument, startdate, enddate, interval, readcache=True, writecache=False):
+        if readcache:
+            history = ArticleHistory.readcache(instrument.id)
+            return history
+
+        history = ArticleHistory(instrument.id, startdate, startdate)
+        while history.enddate < enddate:
+            try:
+                nextdate = history.enddate + interval
+                search = gn_search(instrument.qstr(), formatdt(history.enddate), formatdt(nextdate))
+                group = ArticleGroup(instrument.id, search, history.enddate, nextdate)
+            except Exception as e:
+                print(e)
+                sleep(1)
+                continue
+            print(group)
+            history.add_group(group)
+            history.enddate += interval
+
+        if writecache:
+            history.cache()
+
+        return history
     
     def cache(self):
         startdate_str = formatdt(self.startdate)
@@ -123,16 +149,6 @@ class ArticleGroup:
             article['summary'] = np_article.summary
         return 
         
-    def get_articles(self, ordered=True):
-        parsed = []
-        for article in self.search['articles']:
-            published = datetime.strptime(article['published'], '%a, %d %b %Y %H:%M:%S %Z')
-            article['published'] = published.replace(hour=0, minute=0, second=0, microsecond=0)
-            parsed.append(article)
-        if ordered:
-            parsed.sort(key=lambda k: k['published'])
-        return parsed
-    
     @staticmethod
     def from_dict(d):
         group = ArticleGroup()
@@ -147,40 +163,5 @@ class ArticleGroup:
         enddate_str = formatdt(self.enddate)
         n_articles = len(self.search['articles'])
         return f'ArticleGroup(instrument_id={self.instrument_id}, startdate={startdate_str}, enddate={enddate_str}, search={n_articles})'
-
-def load_history(instrument, startdate, enddate, interval, readcache=True, writecache=False):
-    if readcache:
-        history = ArticleHistory.readcache(instrument.id)
-        return history
-
-    history = ArticleHistory(instrument.id, startdate, startdate)
-    while history.enddate < enddate:
-        try:
-            nextdate = history.enddate + interval
-            search = gn_search(instrument.qstr(), formatdt(history.enddate), formatdt(nextdate))
-            group = ArticleGroup(instrument.id, search, history.enddate, nextdate)
-        except Exception as e:
-            print(e)
-            sleep(1)
-            continue
-        print(group)
-        history.add(group)
-        history.enddate += interval
-
-    if writecache:
-        history.cache()
-
-    return history
-
-def load_histories(startdate, enddate, interval, readcache=True, writecache=False):
-
-    instruments = load_instruments(startdate, enddate, readcache=True, writecache=False)
-    histories = []
-
-    for instrument in tqdm(instruments):
-        history = load_history(instrument, startdate, enddate, interval, readcache, writecache)
-        histories.push(history)
-
-    return histories
 
 

@@ -6,7 +6,7 @@ import json
 import pandas
 import yfinance as yf
 
-TICKERS_PATH = '../data/tickers.json' 
+SYMBOLS = ['QCOM', 'TM', 'AAL', 'WKHS', 'BP', 'ASML', 'LUV', 'GM', 'DAL', 'TSLA', 'INTC', 'FCAU', 'FCAU', 'UAL', 'TSM', 'NVDA', 'CVX', 'XOM', 'JBLU', 'TOT']
 
 class Instrument:
     def __init__(self, symbol=None, shortname=None, info=None):
@@ -30,7 +30,7 @@ class Instrument:
     def readcache(instrument_id):
         d = cache.readcache(f'{Instrument.__name__}_{instrument_id}')
         instrument = Instrument.from_dict(d)
-       return instrument
+        return instrument
     
     def cache(self):
         cache.writecache(f'{self.__class__.__name__}_{self.id}', self.to_dict())
@@ -47,13 +47,6 @@ class Instrument:
     def __repr__(self):
         return f'Instrument(id={self.id}, symbol={self.symbol}, shortname={self.shortname})'
 
-def get_symbols():
-    symbols = []
-    with open(TICKERS_PATH) as f:
-        tkdict = json.load(f)
-        symbols = [symbol for symbols in tkdict.values() for symbol in symbols]
-    return symbols
-
 def load_instruments(startdate, enddate, readcache=True, writecache=False):
 
     instruments = []
@@ -66,8 +59,7 @@ def load_instruments(startdate, enddate, readcache=True, writecache=False):
             instruments.append(instrument)
         return instruments
 
-    symbols = get_symbols()
-    tickers = yf.Tickers(' '.join(symbols))
+    tickers = yf.Tickers(' '.join(SYMBOLS))
 
     infos = []
     for ticker in tqdm(tickers.tickers):
