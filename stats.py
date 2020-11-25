@@ -2,7 +2,6 @@
 def articles_stats(histories):
     total_articles = 0
     total_articles_text = 0
-
     a = []
     b = []
     for history in histories:
@@ -21,5 +20,4 @@ def articles_stats(histories):
 
     print(f'Total number of articles: {total_articles}')
     print(f'Total number of articles with text content: {total_articles_text}')
-
 

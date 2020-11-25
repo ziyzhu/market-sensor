@@ -20,6 +20,9 @@ class AnalyticEngine:
         self.histories = list()
         self.data = dict()
         self.spark = SparkSession(sc)
+
+    def simulate(self, startdate, enddate):
+        pass
     
     def add_sentiment(self):
 
@@ -34,20 +37,33 @@ class AnalyticEngine:
                 return score
 
         for k, v in tqdm(self.data.items()):
-            if v['article_df'].rdd.isEmpty():
+            if v['article_df'].empty:
                 continue
             
-            df = v['article_df']
+            df = self.spark.createDataFrame(v['article_df'])
             df = df.repartition(30)
             df.cache()
 
             df = df.withColumn('title_sentiment_score', sentiment_score(df['title']))
             df = df.withColumn('text_sentiment_score', sentiment_score(df['text']))
 
+            self.data[k]['article_df'] = df.toPandas()
             df.unpersist()
-            self.data[k]['article_df'] = df
+
+    def sample_article_dfs(self, save=True):
+        sample_df = None
+        article_dfs = [v['article_df'] for v in self.data.values()]
+        subsample_dfs = [df.sample(n=10) for df in article_dfs]
+        for df in subsample_dfs:
+            if sample_df == None:
+                sample_df = df
+            sample_df = sample_df.unionByName(df)
+        if save:
+            dest = f'./data/sample.csv'
+            sample_df.to_csv(dest)
+            print(f'saving sampled article dataframes to "{dest}"')
+        return sample_df
         
-    # TODO migrate this to using spark only
     def prepare(self):
         self.load_instruments()
         self.load_histories(self.instruments)
@@ -70,8 +86,8 @@ class AnalyticEngine:
             timeline_df.name = instrument.id
             article_df.name = instrument.id
     
-            self.data[instrument.id] = {'timeline_df': self.spark.createDataFrame(timeline_df),\
-                                        'article_df': self.spark.createDataFrame(article_df)}
+            self.data[instrument.id] = {'timeline_df': timeline_df,\
+                                        'article_df': article_df}
 
 
     def load_instruments(self):
@@ -89,10 +105,12 @@ class AnalyticEngine:
 
             self.histories.append(history)
 
-    def cache(self):
-        pass
+    def save_data(self):
+        for k, v in tqdm(self.data.items()):
+            v['article_df'].to_csv(f'./data/{AnalyticEngine.__name__}_{k}_article_df.csv')
+            v['timeline_df'].to_csv(f'./data/{AnalyticEngine.__name__}_{k}_timeline_df.csv')
 
-    def readcache(self):
+    def load_data(self):
         pass
         
     def __repr__(self):

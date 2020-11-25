@@ -1,8 +1,10 @@
+from pyspark import SparkContext
 import numpy as np
 import pandas as pd 
 from instrument import * 
 from article import *
 from analysis import *
+from stats import * 
 
 if __name__ == '__main__':
 
@@ -12,10 +14,12 @@ if __name__ == '__main__':
     interval = timedelta(weeks=4)
 
     sc = SparkContext("local[*]", "AnalyticEngine")
-
     engine = AnalyticEngine(symbols, startdate, enddate, interval, sc)
     engine.prepare()
     engine.add_sentiment()
+    # engine.cache()
+
     article_df = engine.data['QCOM']['article_df']
     timeline_df = engine.data['QCOM']['timeline_df']
+    # sample_df = engine.sample_article_dfs()
 
