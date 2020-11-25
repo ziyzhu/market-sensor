@@ -31,8 +31,9 @@ class Instrument:
             query = f'{Instrument.__name__}'
             for objname in cache.listcache(query):
                 symbol = objname.split('_')[1]
-                instrument = Instrument.readcache(symbol)
-                instruments.append(instrument)
+                if symbol in symbols:
+                    instrument = Instrument.readcache(symbol)
+                    instruments.append(instrument)
             return instruments
 
         tickers = yf.Tickers(' '.join(symbols))
@@ -83,3 +84,4 @@ class Instrument:
         
     def __repr__(self):
         return f'Instrument(id={self.id}, symbol={self.symbol}, shortname={self.shortname})'
+
