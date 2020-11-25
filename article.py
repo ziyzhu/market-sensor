@@ -20,15 +20,6 @@ def formatdt(dt):
         return dt.strftime('%Y-%m-%d')
     return ''
 
-def gn_search(q, fromtime, totime):
-    sleep(random.uniform(0.4, 0.6))
-    url = "https://google-news.p.rapidapi.com/v1/search"
-    headers = HEADERS
-    qstring = {"q": q, "from": fromtime, "to": totime, "country": "US", "lang": "en"}
-    response = requests.get(url, headers=headers, params=qstring)
-    search = json.loads(response.text)
-    return search
-
 class ArticleHistory:
     def __init__(self, instrument_id=None, startdate=None, enddate=None):
         self.instrument_id = instrument_id
@@ -56,6 +47,16 @@ class ArticleHistory:
         return 
 
     @staticmethod
+    def gn_search(q, fromtime, totime):
+        sleep(random.uniform(0.4, 0.6))
+        url = "https://google-news.p.rapidapi.com/v1/search"
+        headers = HEADERS
+        qstring = {"q": q, "from": fromtime, "to": totime, "country": "US", "lang": "en"}
+        response = requests.get(url, headers=headers, params=qstring)
+        search = json.loads(response.text)
+        return search
+
+    @staticmethod
     def load_history(instrument, startdate, enddate, interval, readcache=True, writecache=False):
         if readcache:
             history = ArticleHistory.readcache(instrument.id)
@@ -65,7 +66,7 @@ class ArticleHistory:
         while history.enddate < enddate:
             try:
                 nextdate = history.enddate + interval
-                search = gn_search(instrument.qstr(), formatdt(history.enddate), formatdt(nextdate))
+                search = ArticleHistory.gn_search(instrument.qstr(), formatdt(history.enddate), formatdt(nextdate))
                 group = ArticleGroup(instrument.id, search, history.enddate, nextdate)
             except Exception as e:
                 print(e)
