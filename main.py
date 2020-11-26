@@ -19,6 +19,7 @@ if __name__ == '__main__':
 
     article_df = engine.data['QCOM']['article_df']
     timeline_df = engine.data['QCOM']['timeline_df']
+    sentiment_df = engine.data['QCOM']['sentiment_df']
     # sample_df = engine.sample_article_dfs()
 
     engine.add_score()
