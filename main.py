@@ -15,11 +15,11 @@ if __name__ == '__main__':
 
     sc = SparkContext("local[*]", "AnalyticEngine")
     engine = AnalyticEngine(symbols, startdate, enddate, interval, sc)
-    engine.prepare()
-    engine.add_sentiment()
-    # engine.cache()
+    engine.load_all()
 
     article_df = engine.data['QCOM']['article_df']
     timeline_df = engine.data['QCOM']['timeline_df']
     # sample_df = engine.sample_article_dfs()
+
+    engine.add_score()
 
