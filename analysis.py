@@ -14,8 +14,8 @@ from instrument import *
 from article import *
 
 class AnalyticEngine:
-    def __init__(self, symbols, startdate, enddate, interval, sc, data_dir='./data'):
-        self.symbols = symbols
+    def __init__(self, symbol_map, startdate, enddate, interval, sc, data_dir='./data'):
+        self.symbol_map = symbol_map
         self.startdate = startdate
         self.enddate = enddate
         self.interval = interval
@@ -25,14 +25,52 @@ class AnalyticEngine:
         self.data_dir = data_dir
         self.spark = SparkSession(sc)
 
-    def simulate(self, startdate, enddate):
-        for k, v in self.data.items():
-            price_series = v['timeline_df']['open']
-            title_sentiment_series = v['timeline_df']['title_score']
-            text_sentiment_series = v['timeline_df']['text_score']
+    def graph(self):
+        for symbol, df_dict in self.data.items():
+            price_series = df_dict['timeline_df']['open'].plot.line()
+            title_sentiment_series = df_dict['timeline_df']['title_score'].plot.line()
+            text_sentiment_series = df_dict['timeline_df']['text_score'].plot.line()
+            plt.legend()
+            plt.show()
 
+    def analyze(self, save_fig=False, show_fig=True):
+        covs = dict()
+        for window in tqdm([1, 2, 3, 4, 5, 6, 7]):
+            covs['price_title'] = []
+            covs['price_text'] = []
+            covs['title_text'] = []
+            self.score(window=window)
+            for tag, symbols in self.symbol_map.items():
+                for symbol in symbols:
+                    df_dict = self.data[symbol]
+                    '''
+                    for col in ['open', 'title_score', 'text_score']:
+                        df_dict['timeline_df'][col].plot.line()
 
-    def add_score(self, window=3):
+                    plt.legend()
+                    if save_fig:
+                        plt.savefig(f'./chart/window{window}_{symbol}_trend')
+                    if show_fig:
+                        plt.show()
+                    plt.clf()
+                    '''
+
+                    covs['price_title'].append(df_dict['timeline_df']['open'].cov(df_dict['timeline_df']['title_score']))
+                    covs['price_text'].append(df_dict['timeline_df']['open'].cov(df_dict['timeline_df']['text_score']))
+                    covs['title_text'].append(df_dict['timeline_df']['title_score'].cov(df_dict['timeline_df']['text_score']))
+
+            plt.plot(covs['price_title'], label='price and title_score covariance')
+            plt.plot(covs['price_text'], label='price and text_score covariance')
+            plt.plot(covs['title_text'], label='title_score and text_score covariance')
+            plt.legend()
+            if save_fig:
+                plt.savefig(f'./chart/window{window}_covariance')
+            if show_fig:
+                plt.show()
+            plt.clf()
+            
+
+    def score(self, window=3):
 
         def calc_score(index, article_df_col, article_df, window):
             average = lambda scores: int(sum(scores) / len(scores)) if len(scores) > 0 else None
@@ -56,46 +94,17 @@ class AnalyticEngine:
                         scores.append(article[article_df_col])
             return average(scores)
 
-        for k, v in tqdm(self.data.items()):
-            article_df = v['article_df']
-            timeline_df = v['timeline_df']
+        for symbol, df_dict in tqdm(self.data.items()):
+            article_df = df_dict['article_df']
+            timeline_df = df_dict['timeline_df']
             if timeline_df.empty or article_df.empty:
                 continue
 
             timeline_df['title_score'] = timeline_df.index.map(lambda index: calc_score(index, 'title_sentiment_score', article_df, window))
             timeline_df['text_score'] = timeline_df.index.map(lambda index: calc_score(index, 'text_sentiment_score', article_df, window))
-
-
-    def add_sentiment(self):
-        nlp = stanza.Pipeline(lang='en', processors='tokenize,sentiment')
-
-        @udf
-        def sentiment_score(s):
-            if s:
-                doc = nlp(s)
-                sentiments = [s.sentiment for s in doc.sentences]
-                score = int(50 * sum(sentiments) / len(sentiments))
-                return score
-        
-        for k, v in tqdm(self.data.items()):
-            article_df = v['article_df']
-            if article_df.empty:
-                continue
-            
-            df = self.spark.createDataFrame(article_df)
-            df = df.repartition(30)
-            df.cache()
-
-            df = df.withColumn('title_sentiment_score', sentiment_score(df['title']))
-            df = df.withColumn('text_sentiment_score', sentiment_score(df['text']))
-
-            self.data[k]['article_df'] = df.toPandas()
-            # sentiment_table[k] = df.select(['source', 'title_sentiment_score', 'text_sentiment_score']).collect()
-            df.unpersist()
-
-
+    
     def sample_article_dfs(self, save=True):
-        article_dfs = [v['article_df'].sample(n=10) for v in self.data.values()]
+        article_dfs = [df_dict['article_df'].sample(n=10) for df_dict in self.data.values()]
         sample_df = pd.concat(article_dfs)
         if save:
             dest = f'./data/sample.csv'
@@ -106,9 +115,43 @@ class AnalyticEngine:
     def load_all(self):
         self.load_instruments()
         self.load_histories(self.instruments)
-        self.load_data()
+        self.load_data(from_cache=True)
 
-    def init_data(self):
+    def load_instruments(self):
+        self.instruments = Instrument.load_instruments(self.symbol_map, self.startdate, self.enddate)
+
+    def load_histories(self, instruments, download_article_content=False):
+        for instrument in instruments:
+            startdate, enddate = instrument.date_range()
+            if not all([startdate, enddate]):
+                continue
+
+            history = ArticleHistory.load_history(instrument, startdate, enddate, self.interval)
+            if download_article_content:
+                history.load_text()
+
+            self.histories.append(history)
+
+    def load_data(self, from_cache=True):
+        if from_cache:
+            for objname in cache.listcache(f'{AnalyticEngine.__name__}'):
+                symbol, df_name = objname.split('-')[1:]
+                if symbol not in self.data:
+                    self.data[symbol] = dict()
+                self.data[symbol][df_name] = cache.readcache(objname)
+        else:
+            self.add_all()
+
+    def cache_data(self):
+        for symbol, df_dict in tqdm(self.data.items()):
+            for df_name, df in df_dict.items():
+                cache.writecache(f'{AnalyticEngine.__name__}-{symbol}-{df_name}', df)
+
+    def add_all(self):
+        self.add_data()
+        self.add_sentiment()
+
+    def add_data(self):
         for instrument, history in zip(self.instruments, self.histories):
             articles = history.get_aligned_articles()
             articles_dict = dict()
@@ -133,63 +176,34 @@ class AnalyticEngine:
             self.data[instrument.id]['article_df'] = article_df
 
 
-    def load_instruments(self):
-        self.instruments = Instrument.load_instruments(self.symbols, self.startdate, self.enddate)
+    def add_sentiment(self):
+        nlp = stanza.Pipeline(lang='en', processors='tokenize,sentiment')
 
-    def load_histories(self, instruments, download_article_content=False):
-        for instrument in instruments:
-            startdate, enddate = instrument.date_range()
-            if not all([startdate, enddate]):
-                continue
-
-            history = ArticleHistory.load_history(instrument, startdate, enddate, self.interval)
-            if download_article_content:
-                history.load_text()
-
-            self.histories.append(history)
-
-    def load_data(self):
-
-        def convert_links(s):
-            return [link.strip("'") for link in s[1:-1].split(',')]
-
-        df_fnames = [fname for fname in os.listdir(self.data_dir) if 'csv' in fname and AnalyticEngine.__name__ in fname]
-        if len(df_fnames) == 0:
-            print('failed to load data from cache, loading data from scratch')
-            return self.init_data()
-
-        keys = [fname.split('_')[1] for fname in df_fnames]
-        for k in keys:
-            article_df = None
-            sentiment_df = None
-            timeline_df = None
-            for fname in df_fnames:
-                if k in fname and 'sentiment_df' in fname:
-                    sentiment_df = pd.read_csv(f'{self.data_dir}/{fname}', index_col='link')
-                if k in fname and 'article_df' in fname:
-                    article_df = pd.read_csv(f'{self.data_dir}/{fname}', index_col='link')
-                    article_df = article_df.replace({np.nan: None})
-                if k in fname and 'timeline_df' in fname:
-                    timeline_df = pd.read_csv(f'{self.data_dir}/{fname}', index_col='date', converters={'links': lambda s: convert_links(s)})
-                    timeline_df.index = pd.to_datetime(timeline_df.index)
-                    timeline_df = timeline_df.replace({np.nan: None})
-
-            self.data[k] = dict()
-            self.data[k]['article_df'] = article_df
-            self.data[k]['timeline_df'] = timeline_df
-            self.data[k]['sentiment_df'] = sentiment_df
-
-    def readcache_data(self):
-        for objname in cache.listcache(f'{AnalyticEngine.__name__}'):
-            symbol, df_name = objname.split('-')[1:]
-            if symbol not in self.data:
-                self.data[symbol] = dict()
-            self.data[symbol][df_name] = cache.readcache(objname)
-
-    def cache_data(self):
+        @udf
+        def sentiment_score(s):
+            if s:
+                doc = nlp(s)
+                sentiments = [s.sentiment for s in doc.sentences]
+                score = int(50 * sum(sentiments) / len(sentiments))
+                return score
+        
         for symbol, df_dict in tqdm(self.data.items()):
-            for df_name, df in df_dict.items():
-                cache.writecache(f'{AnalyticEngine.__name__}-{symbol}-{df_name}', df)
+            article_df = df_dict['article_df']
+            if article_df.empty:
+                continue
+            
+            df = self.spark.createDataFrame(article_df)
+            df = df.repartition(30)
+            df.cache()
+
+            df = df.withColumn('title_sentiment_score', sentiment_score(df['title']))
+            df = df.withColumn('text_sentiment_score', sentiment_score(df['text']))
+
+            if not self.data[symbol]:
+                raise
+
+            self.data[symbol]['article_df'] = df.select(['source', 'title_sentiment_score', 'text_sentiment_score']).toPandas()
+            df.unpersist()
         
     def __repr__(self):
         return f'AnalyticEngine(data={len(self.data)}, histories={len(self.histories)})'

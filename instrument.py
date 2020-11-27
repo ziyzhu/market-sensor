@@ -7,9 +7,10 @@ import pandas
 import yfinance as yf
 
 class Instrument:
-    def __init__(self, symbol=None, shortname=None, info=None):
+    def __init__(self, symbol=None, tag=None, shortname=None, info=None):
         self.id = symbol
         self.symbol = symbol
+        self.tag = tag
         self.shortname = shortname
         self.info = info
         self.df = None
@@ -27,6 +28,7 @@ class Instrument:
     @staticmethod
     def load_instruments(symbols, startdate, enddate, readcache=True, writecache=False):
         instruments = []
+
         if readcache: 
             query = f'{Instrument.__name__}'
             for objname in cache.listcache(query):
