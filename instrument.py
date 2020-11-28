@@ -26,7 +26,9 @@ class Instrument:
         return self.shortname
 
     @staticmethod
-    def load_instruments(symbols, startdate, enddate, readcache=True, writecache=False):
+    def load_instruments(symbol_map, startdate, enddate, readcache=True, writecache=False):
+
+        symbols = [symbol for symbol_list in symbol_map.values() for symbol in symbol_list]
         instruments = []
 
         if readcache: 

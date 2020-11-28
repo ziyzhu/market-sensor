@@ -23,8 +23,9 @@ class AnalyticEngine:
         self.histories = list()
         self.data = dict()
         self.data_dir = data_dir
+        self.source_df = None
         self.spark = SparkSession(sc)
-
+    
     def graph(self):
         for symbol, df_dict in self.data.items():
             price_series = df_dict['timeline_df']['open'].plot.line()
@@ -33,42 +34,31 @@ class AnalyticEngine:
             plt.legend()
             plt.show()
 
-    def analyze(self, save_fig=False, show_fig=True):
+    def analyze_cov(self, symbols, window=3, info='', save_fig=False, show_fig=True):
         covs = dict()
-        for window in tqdm([1, 2, 3, 4, 5, 6, 7]):
-            covs['price_title'] = []
-            covs['price_text'] = []
-            covs['title_text'] = []
-            self.score(window=window)
-            for tag, symbols in self.symbol_map.items():
-                for symbol in symbols:
-                    df_dict = self.data[symbol]
-                    '''
-                    for col in ['open', 'title_score', 'text_score']:
-                        df_dict['timeline_df'][col].plot.line()
+        covs['price_title'] = []
+        covs['price_text'] = []
+        covs['title_text'] = []
+        self.score(window=window)
+        for symbol in symbols:
+            df_dict = self.data[symbol]
+            covs['price_title'].append(df_dict['timeline_df']['open'].cov(df_dict['timeline_df']['title_score']))
+            covs['price_text'].append(df_dict['timeline_df']['open'].cov(df_dict['timeline_df']['text_score']))
+            covs['title_text'].append(df_dict['timeline_df']['title_score'].cov(df_dict['timeline_df']['text_score']))
 
-                    plt.legend()
-                    if save_fig:
-                        plt.savefig(f'./chart/window{window}_{symbol}_trend')
-                    if show_fig:
-                        plt.show()
-                    plt.clf()
-                    '''
-
-                    covs['price_title'].append(df_dict['timeline_df']['open'].cov(df_dict['timeline_df']['title_score']))
-                    covs['price_text'].append(df_dict['timeline_df']['open'].cov(df_dict['timeline_df']['text_score']))
-                    covs['title_text'].append(df_dict['timeline_df']['title_score'].cov(df_dict['timeline_df']['text_score']))
-
-            plt.plot(covs['price_title'], label='price and title_score covariance')
-            plt.plot(covs['price_text'], label='price and text_score covariance')
-            plt.plot(covs['title_text'], label='title_score and text_score covariance')
-            plt.legend()
-            if save_fig:
-                plt.savefig(f'./chart/window{window}_covariance')
-            if show_fig:
-                plt.show()
-            plt.clf()
-            
+        plt.bar(symbols, covs['price_title'], label='price and title_score covariance')
+        plt.bar(symbols, covs['price_text'], label='price and text_score covariance')
+        plt.bar(symbols, covs['title_text'], label='title_score and text_score covariance')
+        plt.title(f'Covariance Analysis: window={window}, info={info}')
+        plt.ylabel('Covariance Normalized by N-1 (Unbiased Estimator)')
+        plt.xlabel('Instrument/Stock Symbol')
+        plt.legend()
+        if save_fig:
+            plt.savefig(f'./chart/window{window}_covariance')
+        if show_fig:
+            plt.show()
+        plt.clf()
+        return covs
 
     def score(self, window=3):
 
@@ -142,6 +132,15 @@ class AnalyticEngine:
         else:
             self.add_all()
 
+    def load_source_df(self):
+        source_dict = dict()
+        article_dfs = [df_dict['article_df'] for df_dict in self.data.values()]
+        for article_df in article_dfs:
+            source_urls = article_df['source'].apply(lambda source: source['href']).tolist()
+            for url in source_urls:
+                source_dict[url] = None
+        self.source_df = pd.DataFrame.from_dict(source_dict, orient='index', columns=['rating'])
+
     def cache_data(self):
         for symbol, df_dict in tqdm(self.data.items()):
             for df_name, df in df_dict.items():
@@ -152,6 +151,10 @@ class AnalyticEngine:
         self.add_sentiment()
 
     def add_data(self):
+        ''' 
+        creates dataframes from objects in cache
+        '''
+
         for instrument, history in zip(self.instruments, self.histories):
             articles = history.get_aligned_articles()
             articles_dict = dict()
@@ -177,6 +180,10 @@ class AnalyticEngine:
 
 
     def add_sentiment(self):
+        ''' 
+        offloads work to Spark to improve performance 
+        '''
+
         nlp = stanza.Pipeline(lang='en', processors='tokenize,sentiment')
 
         @udf
