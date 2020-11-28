@@ -3,6 +3,7 @@ import newspaper
 from tqdm import tqdm
 from datetime import datetime, timedelta, date
 from time import sleep
+import stanza
 import random 
 import requests, json
 import cache
@@ -38,13 +39,45 @@ class ArticleHistory:
         aligned.sort(key=lambda article: article['published'])
         return aligned
 
-    def load_text(self, refresh=False):
+    def download_sentiment(self):
+        nlp = stanza.Pipeline(lang='en', processors='tokenize,sentiment')
+        def sentiment_score(s):
+            if s:
+                doc = nlp(s)
+                sentiments = [s.sentiment for s in doc.sentences]
+                score = int(50 * sum(sentiments) / len(sentiments))
+                return score
+            return 50
         for group in tqdm(self.groups):
-            try:
-                group.load_text(refresh=refresh)
-            except Exception as e:
-                print(e)
-        return 
+            for article in group.search['articles']:
+                article['title_sentiment'] = sentiment_score(article.get('title'))
+                article['text_sentiment'] = sentiment_score(article.get('text'))
+
+    def download_text(self):
+        user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15'
+        config = newspaper.Config()
+        config.browser_user_agent = user_agent
+        config.fetch_images = False
+        config.memoize_articles = False 
+
+        for group in tqdm(self.groups):
+            np_articles = []
+            for article in group.search['articles']:
+                np_article = newspaper.Article(article['link'])
+                np_articles.append(np_article)
+
+            newspaper.news_pool.set(np_articles, threads_per_source=1)
+            newspaper.news_pool.join()
+
+            for np_article, article in zip(np_articles, group.search['articles']):
+                try:
+                    np_article.parse()
+                except Exception as e:
+                    print(e)
+                    continue
+                article['text'] = np_article.text
+                article['keywords'] = np_article.keywords
+                article['summary'] = np_article.summary
 
     @staticmethod
     def gn_search(q, fromtime, totime):
@@ -69,10 +102,8 @@ class ArticleHistory:
                 search = ArticleHistory.gn_search(instrument.qstr(), formatdt(history.enddate), formatdt(nextdate))
                 group = ArticleGroup(instrument.id, search, history.enddate, nextdate)
             except Exception as e:
-                print(e)
                 sleep(1)
                 continue
-            print(group)
             history.add_group(group)
             history.enddate += interval
 
@@ -120,36 +151,6 @@ class ArticleGroup:
         self.startdate = startdate
         self.enddate = enddate
     
-    def load_text(self, refresh=False):
-
-        if not refresh:
-            return 
-
-        user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15'
-        config = newspaper.Config()
-        config.browser_user_agent = user_agent
-        config.fetch_images = False
-        config.memoize_articles = False 
-
-        np_articles = []
-        for article in self.search['articles']:
-            np_article = newspaper.Article(article['link'])
-            np_articles.append(np_article)
-
-        newspaper.news_pool.set(np_articles, threads_per_source=1)
-        newspaper.news_pool.join()
-
-        for np_article, article in zip(np_articles, self.search['articles']):
-            try:
-                np_article.parse()
-            except Exception as e:
-                print(e)
-                continue
-            article['text'] = np_article.text
-            article['keywords'] = np_article.keywords
-            article['summary'] = np_article.summary
-        return 
-        
     @staticmethod
     def from_dict(d):
         group = ArticleGroup()
