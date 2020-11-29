@@ -1,4 +1,4 @@
-import os
+import os, math
 from collections import Counter
 from datetime import timedelta
 import stanza
@@ -26,7 +26,7 @@ class AnalyticEngine:
     
     def graph(self, symbols, window=3):
         for symbol in symbols:
-            self.add_score(window=window)
+            self.add_score_and_accuracy(window=window)
             fig, axes = plt.subplots(2)
             df_dict = self.data[symbol]
             price_series = df_dict['timeline_df']['open'].plot.line(ax=axes[0])
@@ -34,37 +34,101 @@ class AnalyticEngine:
             text_sentiment_series = df_dict['timeline_df']['text_score'].plot.line(ax=axes[1])
             plt.legend()
             plt.show()
-    
-    def analyze_cov(self, symbols, window=3, info='', save_fig=False, show_fig=True):
-        covs = dict()
-        covs['price_title'] = []
-        covs['price_text'] = []
-        covs['title_text'] = []
-        self.add_score(window=window)
-        for symbol in symbols:
-            df_dict = self.data[symbol]
-            covs['price_title'].append(df_dict['timeline_df']['open'].cov(df_dict['timeline_df']['title_score']))
-            covs['price_text'].append(df_dict['timeline_df']['open'].cov(df_dict['timeline_df']['text_score']))
-            covs['title_text'].append(df_dict['timeline_df']['title_score'].cov(df_dict['timeline_df']['text_score']))
 
-        plt.bar(symbols, covs['price_title'], label='price and title_score covariance')
-        plt.bar(symbols, covs['price_text'], label='price and text_score covariance')
-        plt.bar(symbols, covs['title_text'], label='title_score and text_score covariance')
-        plt.title(f'Covariance Analysis: window={window}, info={info}')
-        plt.ylabel('Covariance Normalized by N-1 (Unbiased Estimator)')
-        plt.xlabel('Instrument/Stock Symbol')
+    def analyze_accuracy(self, symbols, window=3, info='', save_fig=False, show_fig=False):
+        res = dict()
+        self.add_score_and_accuracy(window=window)
+        for symbol in symbols:
+            res[symbol] = dict()
+            timeline_df = self.data[symbol]['timeline_df']
+            title_correct = timeline_df[timeline_df['title_accuracy'] > 0]['title_accuracy'].count();
+            text_correct = timeline_df[timeline_df['text_accuracy'] > 0]['text_accuracy'].count();
+            res[symbol]['title_accuracy'] = title_correct / len(timeline_df)
+            res[symbol]['text_accuracy'] = text_correct / len(timeline_df)
+
+        plt.bar(symbols, [res[symbol]['title_accuracy'] for symbol in symbols], label='title_accuracy')
+        plt.bar(symbols, [res[symbol]['text_accuracy'] for symbol in symbols], label='text_accuracy')
+        plt.ylabel('accuracy % / 100')
         plt.legend()
         if save_fig:
-            plt.savefig(f'./chart/window{window}_covariance')
+            plt.savefig(f'./chart/accuracy_{window}.jpg')
         if show_fig:
             plt.show()
         plt.clf()
-        return covs
+        return res
+
+    def analyze_accuracies(self, symbols, windows, save_fig=False, show_fig=False):
+        res = dict()
+        for window in windows:
+            subres = self.analyze_accuracy(symbols, window=window, info=f'window={window}', show_fig=show_fig)
+            res[window] = dict()
+            res[window]['title_accuracy'] = sum([subres[symbol]['title_accuracy'] for symbol in subres]) / len(subres)
+            res[window]['text_accuracy'] = sum([subres[symbol]['text_accuracy'] for symbol in subres]) / len(subres)
+
+        plt.bar(windows, [res[window]['title_accuracy'] for window in windows], label='title_accuracy')
+        plt.bar(windows, [res[window]['text_accuracy'] for window in windows], label='text_accuracy')
+        plt.ylabel('accuracy % / 100')
+        plt.xlabel('Window in days')
+        plt.legend()
+        if save_fig:
+            plt.savefig(f'./chart/accuracies.jpg')
+        if show_fig:
+            plt.show()
+        plt.clf()
+        return res
+    
+    def analyze_cov(self, symbols, window=3, info='', save_fig=False, show_fig=False):
+        res = dict()
+        res['price_title'] = []
+        res['price_text'] = []
+        res['title_text'] = []
+        self.add_score_and_accuracy(window=window)
+        for symbol in symbols:
+            df_dict = self.data[symbol]
+            res['price_title'].append(df_dict['timeline_df']['change'].cov(df_dict['timeline_df']['title_score']))
+            res['price_text'].append(df_dict['timeline_df']['change'].cov(df_dict['timeline_df']['text_score']))
+            res['title_text'].append(df_dict['timeline_df']['title_score'].cov(df_dict['timeline_df']['text_score']))
+
+        plt.bar(symbols, res['price_title'], label='price change and title_score covariance')
+        plt.bar(symbols, res['price_text'], label='price change and text_score covariance')
+        plt.bar(symbols, res['title_text'], label='title_score and text_score covariance')
+        plt.title(f'Covariance Analysis: window={window}, info={info}')
+        plt.ylabel('Covariance Normalized by N-1 (Unbiased Estimator)')
+        plt.legend()
+        if save_fig:
+            plt.savefig(f'./chart/cov_{window}.jpg')
+        if show_fig:
+            plt.show()
+        plt.clf()
+        return res
+
+    def analyze_covs(self, symbols, windows, save_fig=False, show_fig=False):
+        res = dict()
+        for window in windows:
+            covs = self.analyze_cov(symbols, window=window, info='for all symbols', show_fig=show_fig)
+            res[window] = dict()
+            for k in covs:
+                res[window][k] = sum(covs[k])
+        
+        for k in ['price_text', 'price_title', 'title_text']: 
+            plt.plot(windows, [res[window][k] for window in windows], label=k)
+
+        plt.ylabel(f'Covariance Sum for {len(windows)} window days')
+        plt.xlabel('Window in Days')
+        plt.legend()
+        if save_fig:
+            plt.savefig(f'./chart/covs.jpg')
+        if show_fig:
+            plt.show()
+        plt.clf()
+        return res
 
     def calc_score(self, currdate, article_df_col, article_df, timeline_df, window):
         average = lambda scores: sum(scores) / len(scores) if len(scores) > 0 else None
+        n_articles = 0
         scores = []
-        for day in range(1, window + 1):
+        days = [window - 1 if window > 0 else 0, window, window + 1] # sliding window method
+        for day in days:
             article_links = None
             try:
                 article_links = timeline_df.loc[currdate - timedelta(days=day)]['links']
@@ -77,19 +141,20 @@ class AnalyticEngine:
             for link in article_links:
                 try:
                     article = article_df.loc[link]
-                except KeyError:
-                    print('article_df.loc[link] failed')
+                    sentiment = article[article_df_col]
+                    source_url = article['source']['href']
+                    score = sentiment 
+                    score *= self.source_df.loc[source_url]['weight'] # not enough weight
+                except:
                     continue
-                score = article[article_df_col]
-                if score:
-                    try:
-                        article = article_df.loc[link]
-                        source_url = article['source']['href']
-                        score *= self.source_df.loc[source_url]['weight']
-                    except:
-                        pass
-                    scores.append(score)
-        return average(scores)
+                scores.append(score)
+
+            n_articles += len(article_links)
+
+        final_score = average(scores) 
+        # final_score *= math.log(len(article_links)) # to be verified
+        return final_score
+
     
     def calc_accuracy(self, score, change):
         if (score > 50 and change > 0) or (score < 50 and change < 0):
@@ -98,6 +163,9 @@ class AnalyticEngine:
             return 0
 
     def add_score_and_accuracy(self, window=3):
+        '''
+        parallelize this function / use spark
+        '''
         for symbol, df_dict in tqdm(self.data.items()):
             article_df = df_dict['article_df']
             timeline_df = df_dict['timeline_df']
@@ -106,8 +174,8 @@ class AnalyticEngine:
 
             timeline_df['title_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'title_sentiment', article_df, timeline_df, window))
             timeline_df['text_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'text_sentiment', article_df, timeline_df, window))
-            timeline_df['title_accuracy'] = timeline_df.apply(lambda index: self.calc_accuracy(row['title_score'], row['change']))
-            timeline_df['text_accuracy'] = timeline_df.apply(lambda index: self.calc_accuracy(row['text_score'], row['change']))
+            timeline_df['title_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['title_score'], row['change']), axis=1)
+            timeline_df['text_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['text_score'], row['change']), axis=1)
     
     def sample_article_dfs(self, save=True):
         article_dfs = [df_dict['article_df'].sample(n=10) for df_dict in self.data.values()]
