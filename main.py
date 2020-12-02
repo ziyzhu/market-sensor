@@ -19,16 +19,13 @@ if __name__ == '__main__':
 
     engine = AnalyticEngine(symbol_map, startdate, enddate, interval)
     engine.add_all()
-    # engine.load_all()
 
     article_df = engine.data['QCOM']['article_df']
     timeline_df = engine.data['QCOM']['timeline_df']
     article_dfs = [df_dict['article_df'] for df_dict in engine.data.values()]
 
-    windows = list(range(31))
-    engine.analyze_covs(symbols, windows=windows, save_fig=True, show_fig=False)
-    engine.analyze_accuracies(symbols, windows=windows, save_fig=True, show_fig=False)
-    # engine.analyze_accuracy(symbols, window=3, info='for all symbols', show_fig=True)
-    # engine.analyze_accuracy(symbols, window=3, info='for all symbols', show_fig=True)
+    windows = list(range(1, 32))
+    res_a = engine.analyze_accuracies(windows=windows, save_fig=True, show_fig=False)
+    res_c = engine.analyze_covs(windows=windows, save_fig=True, show_fig=False)
 
 

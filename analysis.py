@@ -36,18 +36,32 @@ class AnalyticEngine:
             plt.show()
 
     def analyze_accuracy(self, symbols, window=3, info='', save_fig=False, show_fig=False):
+        '''
+        analyze accuracies for each symbol given a window length
+        '''
         res = dict()
         self.add_score_and_accuracy(window=window)
         for symbol in symbols:
             res[symbol] = dict()
             timeline_df = self.data[symbol]['timeline_df']
-            title_correct = timeline_df[timeline_df['title_accuracy'] > 0]['title_accuracy'].count();
-            text_correct = timeline_df[timeline_df['text_accuracy'] > 0]['text_accuracy'].count();
+
+            title_pos_correct = timeline_df[timeline_df['title_accuracy'] == 100]['title_accuracy'].count();
+            title_neg_correct = timeline_df[timeline_df['title_accuracy'] == 0]['title_accuracy'].count();
+            title_correct = title_pos_correct + title_neg_correct
+            text_pos_correct = timeline_df[timeline_df['text_accuracy'] == 100]['text_accuracy'].count();
+            text_neg_correct = timeline_df[timeline_df['text_accuracy'] == 0]['text_accuracy'].count();
+            text_correct = text_pos_correct + text_neg_correct
+
+            res[symbol]['title_pos_accuracy'] = title_pos_correct / len(timeline_df)
+            res[symbol]['title_neg_accuracy'] = title_neg_correct / len(timeline_df)
             res[symbol]['title_accuracy'] = title_correct / len(timeline_df)
+            res[symbol]['text_pos_accuracy'] = text_pos_correct / len(timeline_df)
+            res[symbol]['text_neg_accuracy'] = text_neg_correct / len(timeline_df)
             res[symbol]['text_accuracy'] = text_correct / len(timeline_df)
 
-        plt.bar(symbols, [res[symbol]['title_accuracy'] for symbol in symbols], label='title_accuracy')
-        plt.bar(symbols, [res[symbol]['text_accuracy'] for symbol in symbols], label='text_accuracy')
+        for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_accuracy']:
+            plt.plot(symbols, [res[symbol][accuracy] for symbol in symbols], label=accuracy)
+
         plt.ylabel('accuracy % / 100')
         plt.legend()
         if save_fig:
@@ -57,27 +71,37 @@ class AnalyticEngine:
         plt.clf()
         return res
 
-    def analyze_accuracies(self, symbols, windows, save_fig=False, show_fig=False):
-        res = dict()
-        for window in windows:
-            subres = self.analyze_accuracy(symbols, window=window, info=f'window={window}', show_fig=show_fig)
-            res[window] = dict()
-            res[window]['title_accuracy'] = sum([subres[symbol]['title_accuracy'] for symbol in subres]) / len(subres)
-            res[window]['text_accuracy'] = sum([subres[symbol]['text_accuracy'] for symbol in subres]) / len(subres)
+    def analyze_accuracies(self, windows, save_fig=False, show_fig=False):
+        '''
+        analyze accuracies for each industry for each window length
+        '''
+        res_list = list()
+        for industry, symbols in self.symbol_map.items():
+            res = dict()
+            for window in windows:
+                subres = self.analyze_accuracy(symbols, window=window, info=f'window={window}')
+                res[window] = dict()
+                for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_accuracy']:
+                    res[window][accuracy] = sum([subres[symbol][accuracy] for symbol in subres]) / len(subres)
 
-        plt.bar(windows, [res[window]['title_accuracy'] for window in windows], label='title_accuracy')
-        plt.bar(windows, [res[window]['text_accuracy'] for window in windows], label='text_accuracy')
-        plt.ylabel('accuracy % / 100')
-        plt.xlabel('Window in days')
-        plt.legend()
-        if save_fig:
-            plt.savefig(f'./chart/accuracies.jpg')
-        if show_fig:
-            plt.show()
-        plt.clf()
-        return res
+            for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_accuracy']:
+                plt.plot(windows, [res[window][accuracy] for window in windows], label=accuracy)
+
+            plt.ylabel('accuracy % / 100')
+            plt.xlabel('Window in days')
+            plt.legend()
+            if save_fig:
+                plt.savefig(f'./chart/accuracies_{industry}.jpg')
+            if show_fig:
+                plt.show()
+            plt.clf()
+            res_list.append(res)
+        return res_list
     
     def analyze_cov(self, symbols, window=3, info='', save_fig=False, show_fig=False):
+        '''
+        analyze covariance for each symbol given a window length
+        '''
         res = dict()
         res['price_title'] = []
         res['price_text'] = []
@@ -102,33 +126,41 @@ class AnalyticEngine:
         plt.clf()
         return res
 
-    def analyze_covs(self, symbols, windows, save_fig=False, show_fig=False):
-        res = dict()
-        for window in windows:
-            covs = self.analyze_cov(symbols, window=window, info='for all symbols', show_fig=show_fig)
-            res[window] = dict()
-            for k in covs:
-                res[window][k] = sum(covs[k])
-        
-        for k in ['price_text', 'price_title', 'title_text']: 
-            plt.plot(windows, [res[window][k] for window in windows], label=k)
+    def analyze_covs(self, windows, save_fig=False, show_fig=False):
+        '''
+        analyze covariance for each industry for each window length
+        '''
+        res_list = list()
+        for industry, symbols in self.symbol_map.items():
+            res = dict()
+            for window in windows:
+                covs = self.analyze_cov(symbols, window=window, info='for all symbols')
+                res[window] = dict()
+                for k in covs:
+                    res[window][k] = sum(covs[k])
+            
+            for k in ['price_text', 'price_title', 'title_text']: 
+                plt.plot(windows, [res[window][k] for window in windows], label=k)
 
-        plt.ylabel(f'Covariance Sum for {len(windows)} window days')
-        plt.xlabel('Window in Days')
-        plt.legend()
-        if save_fig:
-            plt.savefig(f'./chart/covs.jpg')
-        if show_fig:
-            plt.show()
-        plt.clf()
-        return res
+            plt.ylabel(f'Covariance Sum for {len(windows)} window days')
+            plt.xlabel('Window in Days')
+            plt.legend()
+            if save_fig:
+                plt.savefig(f'./chart/covs_{industry}.jpg')
+            if show_fig:
+                plt.show()
+            plt.clf()
+            res_list.append(res)
+        return res_list
 
     def calc_score(self, currdate, article_df_col, article_df, timeline_df, window):
         average = lambda scores: sum(scores) / len(scores) if len(scores) > 0 else None
-        n_articles = 0
+        article_count = 0
         scores = []
-        days = [window - 1 if window > 0 else 0, window, window + 1] # sliding window method
-        for day in days:
+        # days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] # sliding window method
+        days = list(range(window))
+        # weights = [0.85, 0.95, 1, 1, 1, 0.95, 0.85]
+        for i, day in enumerate(days):
             article_links = None
             try:
                 article_links = timeline_df.loc[currdate - timedelta(days=day)]['links']
@@ -144,23 +176,27 @@ class AnalyticEngine:
                     sentiment = article[article_df_col]
                     source_url = article['source']['href']
                     score = sentiment 
-                    score *= self.source_df.loc[source_url]['weight'] # not enough weight
+                    # score *= self.source_df.loc[source_url]['weight'] # not enough weight
                 except:
                     continue
                 scores.append(score)
 
-            n_articles += len(article_links)
-
+            article_count += len(article_links)
+        
+        timeline_df.at[currdate, 'article_count'] = article_count
         final_score = average(scores) 
         # final_score *= math.log(len(article_links)) # to be verified
         return final_score
-
     
     def calc_accuracy(self, score, change):
-        if (score > 50 and change > 0) or (score < 50 and change < 0):
+        if not score:
+            return -1 
+        if (score > 50 and change > 0):
             return 100
-        else:
+        elif (score < 50 and change < 0):
             return 0
+        else:
+            return -1
 
     def add_score_and_accuracy(self, window=3):
         '''
@@ -172,6 +208,7 @@ class AnalyticEngine:
             if all([timeline_df.empty, article_df.empty]):
                 continue
 
+            timeline_df['article_count'] = None
             timeline_df['title_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'title_sentiment', article_df, timeline_df, window))
             timeline_df['text_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'text_sentiment', article_df, timeline_df, window))
             timeline_df['title_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['title_score'], row['change']), axis=1)
