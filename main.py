@@ -1,3 +1,5 @@
+from pyspark.sql import SparkSession, DataFrame
+from pyspark import SparkContext
 import numpy as np
 import pandas as pd 
 from instrument import * 
@@ -16,16 +18,15 @@ if __name__ == '__main__':
     startdate = datetime(2015, 1, 1)
     enddate = datetime(2017, 1, 1)
     interval = timedelta(weeks=4)
+    
+    sc = SparkContext("local[*]", "Price Prediction")
+    spark = SparkSession(sc)
+    spark.sparkContext.setLogLevel("ERROR") 
 
-    engine = AnalyticEngine(symbol_map, startdate, enddate, interval)
+    engine = AnalyticEngine(symbol_map, startdate, enddate, interval, spark)
     engine.add_all()
 
-    article_df = engine.data['QCOM']['article_df']
-    timeline_df = engine.data['QCOM']['timeline_df']
-    article_dfs = [df_dict['article_df'] for df_dict in engine.data.values()]
-
-    windows = list(range(1, 32))
-    res_a = engine.analyze_accuracies(windows=windows, save_fig=True, show_fig=False)
-    res_c = engine.analyze_covs(windows=windows, save_fig=True, show_fig=False)
-
+    # windows = list(range(1, 32))
+    # res_a = engine.analyze_accuracies(windows=windows, save_fig=True, show_fig=False)
+    # res_c = engine.analyze_covs(windows=windows, save_fig=True, show_fig=False)
 

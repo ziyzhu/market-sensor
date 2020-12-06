@@ -1,3 +1,4 @@
+from pyspark.sql import SparkSession 
 from pygooglenews import GoogleNews
 import newspaper
 from tqdm import tqdm
@@ -36,22 +37,34 @@ class ArticleHistory:
         for group in self.groups:
             articles = group.search['articles'].copy()
             aligned.extend(articles)
-        aligned.sort(key=lambda article: article['published'])
+        aligned = [article for article in aligned if type(article.get('published')) == datetime]
+        aligned.sort(key=lambda article: article.get('published').timestamp())
         return aligned
 
-    def download_sentiment(self):
+    def download_sentiment(self, spark: SparkSession=None):
         nlp = stanza.Pipeline(lang='en', processors='tokenize,sentiment')
-        def sentiment_score(s):
-            if s:
-                doc = nlp(s)
-                sentiments = [s.sentiment for s in doc.sentences]
+        def sentiment_score(text):
+            if text:
+                doc = nlp(text)
+                sentiments = []
+                for s in doc.sentences:
+                    if len(s.tokens) > 5: # admit only valid sentences
+                        sentiments.append(s.sentiment)
+                if len(sentiments) == 0:
+                    return None
                 score = int(50 * sum(sentiments) / len(sentiments))
                 return score
-            return 50
+            return None
+
+        def add_sentiment(article):
+            article['title_sentiment'] = sentiment_score(article.get('title', ''))
+            article['text_sentiment'] = sentiment_score(article.get('text', ''))
+            return article
+        
         for group in tqdm(self.groups):
-            for article in group.search['articles']:
-                article['title_sentiment'] = sentiment_score(article.get('title'))
-                article['text_sentiment'] = sentiment_score(article.get('text'))
+            rdd = spark.sparkContext.parallelize(group.search['articles'])
+            rdd.partitionBy(30)
+            group.search['articles'] = rdd.map(lambda article: add_sentiment(article)).collect()
 
     def download_text(self):
         user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15'

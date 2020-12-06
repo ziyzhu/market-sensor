@@ -1,4 +1,6 @@
 import os, math
+from pyspark.sql import SparkSession
+from pprint import pprint
 from collections import Counter
 from datetime import timedelta
 import stanza
@@ -13,7 +15,7 @@ from instrument import *
 from article import *
 
 class AnalyticEngine:
-    def __init__(self, symbol_map, startdate, enddate, interval, data_dir='./data'):
+    def __init__(self, symbol_map, startdate, enddate, interval, spark: SparkSession, data_dir='./data'):
         self.symbol_map = symbol_map
         self.startdate = startdate
         self.enddate = enddate
@@ -23,8 +25,9 @@ class AnalyticEngine:
         self.data = dict()
         self.data_dir = data_dir
         self.source_df = None
+        self.spark = spark
     
-    def graph(self, symbols, window=3):
+    def graph(self, symbols, window=7):
         for symbol in symbols:
             self.add_score_and_accuracy(window=window)
             fig, axes = plt.subplots(2)
@@ -35,7 +38,10 @@ class AnalyticEngine:
             plt.legend()
             plt.show()
 
-    def analyze_accuracy(self, symbols, window=3, info='', save_fig=False, show_fig=False):
+    def analyze_distribution(self, symbols, window=7, info='', save_fig=False, show_fig=False):
+        pass
+
+    def analyze_accuracy(self, symbols, window=7, info='', save_fig=False, show_fig=False):
         '''
         analyze accuracies for each symbol given a window length
         '''
@@ -69,6 +75,9 @@ class AnalyticEngine:
         if show_fig:
             plt.show()
         plt.clf()
+
+        pprint('=> output of analyze_accuracy')
+        pprint(res)
         return res
 
     def analyze_accuracies(self, windows, save_fig=False, show_fig=False):
@@ -96,9 +105,12 @@ class AnalyticEngine:
                 plt.show()
             plt.clf()
             res_list.append(res)
+
+        pprint('=> output of analyze_accuracies')
+        pprint(res_list)
         return res_list
     
-    def analyze_cov(self, symbols, window=3, info='', save_fig=False, show_fig=False):
+    def analyze_cov(self, symbols, window=7, info='', save_fig=False, show_fig=False):
         '''
         analyze covariance for each symbol given a window length
         '''
@@ -124,6 +136,9 @@ class AnalyticEngine:
         if show_fig:
             plt.show()
         plt.clf()
+
+        pprint('=> output of analyze_cov')
+        pprint(res)
         return res
 
     def analyze_covs(self, windows, save_fig=False, show_fig=False):
@@ -151,15 +166,16 @@ class AnalyticEngine:
                 plt.show()
             plt.clf()
             res_list.append(res)
+
+        pprint('=> output of analyze_covs')
+        pprint(res_list)
         return res_list
 
     def calc_score(self, currdate, article_df_col, article_df, timeline_df, window):
         average = lambda scores: sum(scores) / len(scores) if len(scores) > 0 else None
         article_count = 0
         scores = []
-        # days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] # sliding window method
-        days = list(range(window))
-        # weights = [0.85, 0.95, 1, 1, 1, 0.95, 0.85]
+        days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] # sliding window method
         for i, day in enumerate(days):
             article_links = None
             try:
@@ -176,7 +192,8 @@ class AnalyticEngine:
                     sentiment = article[article_df_col]
                     source_url = article['source']['href']
                     score = sentiment 
-                    # score *= self.source_df.loc[source_url]['weight'] # not enough weight
+                    if day > 1 and sentiment < 50: # disregard negative sentiments from news more than a day ago
+                        continue
                 except:
                     continue
                 scores.append(score)
@@ -185,7 +202,6 @@ class AnalyticEngine:
         
         timeline_df.at[currdate, 'article_count'] = article_count
         final_score = average(scores) 
-        # final_score *= math.log(len(article_links)) # to be verified
         return final_score
     
     def calc_accuracy(self, score, change):
@@ -198,7 +214,7 @@ class AnalyticEngine:
         else:
             return -1
 
-    def add_score_and_accuracy(self, window=3):
+    def add_score_and_accuracy(self, window=7):
         '''
         parallelize this function / use spark
         '''
@@ -211,9 +227,28 @@ class AnalyticEngine:
             timeline_df['article_count'] = None
             timeline_df['title_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'title_sentiment', article_df, timeline_df, window))
             timeline_df['text_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'text_sentiment', article_df, timeline_df, window))
+            timeline_df = timeline_df.replace({np.nan: None}) # redundant check
+            self.fill_score(timeline_df) 
             timeline_df['title_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['title_score'], row['change']), axis=1)
             timeline_df['text_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['text_score'], row['change']), axis=1)
-    
+
+    def fill_score(self, timeline_df, limit = 5):
+        '''
+        fills scores from previous days if not available
+        '''
+        delay = timedelta(days=0)
+        for currdate, row in timeline_df.iterrows():
+            try:
+                while delay.days < limit and (not timeline_df.at[currdate, 'title_score'] or not timeline_df.at[currdate, 'text_score']):
+                    if not timeline_df.at[currdate, 'title_score'] and timeline_df.at[currdate - delay, 'title_score']:
+                        timeline_df.at[currdate, 'title_score'] = timeline_df.at[currdate - delay, 'title_score']
+                    if not timeline_df.at[currdate, 'text_score'] and timeline_df.at[currdate - delay, 'text_score']:
+                        timeline_df.at[currdate, 'text_score'] = timeline_df.at[currdate - delay, 'text_score']
+                    delay += timedelta(days=1)
+            except Exception as e:
+                continue
+        return timeline_df
+
     def sample_article_dfs(self, save=True):
         article_dfs = [df_dict['article_df'].sample(n=10) for df_dict in self.data.values()]
         sample_df = pd.concat(article_dfs)
@@ -306,7 +341,7 @@ class AnalyticEngine:
                     articles_dict[col].append(article.get(col))
 
             article_df = pd.DataFrame.from_dict(articles_dict).set_index('link', drop=False, verify_integrity=True)
-            article['published'] = pd.to_datetime(article_df['published'])
+            # article_df['published'] = pd.to_datetime(article_df['published'])
             article_series = article_df.groupby('published')['link'].apply(list).rename('links')
             timeline_df = pd.merge(instrument.df, article_series, left_index=True, right_index=True, how='left')
             timeline_df = timeline_df[['Open', 'Close', 'links']].replace({np.nan: None})
