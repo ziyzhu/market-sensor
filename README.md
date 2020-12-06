@@ -1,6 +1,10 @@
 # market-sensor
+Foresee market behaviors based on Google News.
 
-# Todo
+## Architecture
+![architecture](https://github.com/zachzhu2016/market-sensor/blob/main/picture/architecture.png)
 
-1. random sample to check sentiment score accuracy
-2. choosing a range to align prices and sentiment scores
+## Example Figures
+QCOM Example Figure:
+![QCOM](https://github.com/zachzhu2016/market-sensor/blob/main/picture/QCOM_graph.png)
+
