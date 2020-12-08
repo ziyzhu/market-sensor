@@ -1,6 +1,6 @@
 import os, math
+from multiprocessing import Pool
 from pyspark.sql import SparkSession
-from pprint import pprint
 from collections import Counter
 from datetime import timedelta
 import stanza
@@ -28,8 +28,8 @@ class AnalyticEngine:
         self.spark = spark
     
     def graph(self, symbols, window=7):
+        self.add_score_and_accuracy(window=window)
         for symbol in symbols:
-            self.add_score_and_accuracy(window=window)
             fig, axes = plt.subplots(2)
             df_dict = self.data[symbol]
             price_series = df_dict['timeline_df']['open'].plot.line(ax=axes[0])
@@ -38,8 +38,12 @@ class AnalyticEngine:
             plt.legend()
             plt.show()
 
-    def analyze_distribution(self, symbols, window=7, info='', save_fig=False, show_fig=False):
-        pass
+    def analyze_sentiment_distribution(self, symbols, window=7, info='', save_fig=False, show_fig=False):
+        title_scores = []
+        text_scores = []
+        for symbol in symbols: 
+            timeline_df = self.data[symbol]['timeline_df']
+
 
     def analyze_accuracy(self, symbols, window=7, info='', save_fig=False, show_fig=False):
         '''
@@ -52,21 +56,25 @@ class AnalyticEngine:
             timeline_df = self.data[symbol]['timeline_df']
 
             title_pos_correct = timeline_df[timeline_df['title_accuracy'] == 100]['title_accuracy'].count();
+            title_hold_correct = timeline_df[timeline_df['title_accuracy'] == 50]['title_accuracy'].count();
             title_neg_correct = timeline_df[timeline_df['title_accuracy'] == 0]['title_accuracy'].count();
-            title_correct = title_pos_correct + title_neg_correct
+            title_correct = title_pos_correct + title_neg_correct + title_hold_correct
             text_pos_correct = timeline_df[timeline_df['text_accuracy'] == 100]['text_accuracy'].count();
+            text_hold_correct = timeline_df[timeline_df['text_accuracy'] == 50]['text_accuracy'].count();
             text_neg_correct = timeline_df[timeline_df['text_accuracy'] == 0]['text_accuracy'].count();
-            text_correct = text_pos_correct + text_neg_correct
+            text_correct = text_pos_correct + text_neg_correct + text_hold_correct
 
             res[symbol]['title_pos_accuracy'] = title_pos_correct / len(timeline_df)
             res[symbol]['title_neg_accuracy'] = title_neg_correct / len(timeline_df)
+            res[symbol]['title_hold_accuracy'] = title_hold_correct / len(timeline_df)
             res[symbol]['title_accuracy'] = title_correct / len(timeline_df)
             res[symbol]['text_pos_accuracy'] = text_pos_correct / len(timeline_df)
             res[symbol]['text_neg_accuracy'] = text_neg_correct / len(timeline_df)
+            res[symbol]['text_hold_accuracy'] = text_hold_correct / len(timeline_df)
             res[symbol]['text_accuracy'] = text_correct / len(timeline_df)
 
-        for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_accuracy']:
-            plt.plot(symbols, [res[symbol][accuracy] for symbol in symbols], label=accuracy)
+        for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_hold_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_hold_accuracy', 'text_accuracy']:
+            plt.bar(symbols, [res[symbol][accuracy] for symbol in symbols], label=accuracy)
 
         plt.ylabel('accuracy % / 100')
         plt.legend()
@@ -76,8 +84,8 @@ class AnalyticEngine:
             plt.show()
         plt.clf()
 
-        pprint('=> output of analyze_accuracy')
-        pprint(res)
+        print('=> output of analyze_accuracy')
+        print(res)
         return res
 
     def analyze_accuracies(self, windows, save_fig=False, show_fig=False):
@@ -90,10 +98,10 @@ class AnalyticEngine:
             for window in windows:
                 subres = self.analyze_accuracy(symbols, window=window, info=f'window={window}')
                 res[window] = dict()
-                for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_accuracy']:
+                for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_hold_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_hold_accuracy', 'text_accuracy']:
                     res[window][accuracy] = sum([subres[symbol][accuracy] for symbol in subres]) / len(subres)
 
-            for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_accuracy']:
+            for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_hold_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_hold_accuracy', 'text_accuracy']:
                 plt.plot(windows, [res[window][accuracy] for window in windows], label=accuracy)
 
             plt.ylabel('accuracy % / 100')
@@ -106,8 +114,8 @@ class AnalyticEngine:
             plt.clf()
             res_list.append(res)
 
-        pprint('=> output of analyze_accuracies')
-        pprint(res_list)
+        print('=> output of analyze_accuracies')
+        print(res_list)
         return res_list
     
     def analyze_cov(self, symbols, window=7, info='', save_fig=False, show_fig=False):
@@ -137,8 +145,8 @@ class AnalyticEngine:
             plt.show()
         plt.clf()
 
-        pprint('=> output of analyze_cov')
-        pprint(res)
+        print('=> output of analyze_cov')
+        print(res)
         return res
 
     def analyze_covs(self, windows, save_fig=False, show_fig=False):
@@ -167,15 +175,16 @@ class AnalyticEngine:
             plt.clf()
             res_list.append(res)
 
-        pprint('=> output of analyze_covs')
-        pprint(res_list)
+        print('=> output of analyze_covs')
+        print(res_list)
         return res_list
 
     def calc_score(self, currdate, article_df_col, article_df, timeline_df, window):
         average = lambda scores: sum(scores) / len(scores) if len(scores) > 0 else None
         article_count = 0
         scores = []
-        days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] # sliding window method
+        # days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] # sliding window method
+        days = list(range(window))
         for i, day in enumerate(days):
             article_links = None
             try:
@@ -192,8 +201,8 @@ class AnalyticEngine:
                     sentiment = article[article_df_col]
                     source_url = article['source']['href']
                     score = sentiment 
-                    if day > 1 and sentiment < 50: # disregard negative sentiments from news more than a day ago
-                        continue
+                    # if day > 1 and sentiment < 50: # disregard negative sentiments from news more than a day ago
+                    #    continue
                 except:
                     continue
                 scores.append(score)
@@ -206,8 +215,10 @@ class AnalyticEngine:
     
     def calc_accuracy(self, score, change):
         if not score:
-            return -1 
-        if (score > 50 and change > 0):
+            return -2
+        if (45 < score < 55 and abs(change) < 0.25):
+            return 50
+        elif (score > 50 and change > 0):
             return 100
         elif (score < 50 and change < 0):
             return 0
@@ -218,6 +229,7 @@ class AnalyticEngine:
         '''
         parallelize this function / use spark
         '''
+        print('=> adding scores and calculating accuracies:')
         for symbol, df_dict in tqdm(self.data.items()):
             article_df = df_dict['article_df']
             timeline_df = df_dict['timeline_df']
@@ -227,24 +239,28 @@ class AnalyticEngine:
             timeline_df['article_count'] = None
             timeline_df['title_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'title_sentiment', article_df, timeline_df, window))
             timeline_df['text_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'text_sentiment', article_df, timeline_df, window))
-            timeline_df = timeline_df.replace({np.nan: None}) # redundant check
-            self.fill_score(timeline_df) 
+            timeline_df = self.fill_score(timeline_df) 
             timeline_df['title_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['title_score'], row['change']), axis=1)
             timeline_df['text_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['text_score'], row['change']), axis=1)
+            df_dict['timeline_df'] = timeline_df
 
-    def fill_score(self, timeline_df, limit = 5):
+    def fill_score(self, timeline_df, limit = 3):
         '''
         fills scores from previous days if not available
         '''
         delay = timedelta(days=0)
         for currdate, row in timeline_df.iterrows():
             try:
-                while delay.days < limit and (not timeline_df.at[currdate, 'title_score'] or not timeline_df.at[currdate, 'text_score']):
-                    if not timeline_df.at[currdate, 'title_score'] and timeline_df.at[currdate - delay, 'title_score']:
+                # attempt to use previous score
+                while delay.days < limit and (pd.isna(timeline_df.at[currdate, 'title_score']) or pd.isna(timeline_df.at[currdate, 'text_score'])):
+                    if pd.isna(timeline_df.at[currdate, 'title_score']) and not pd.isna(timeline_df.at[currdate - delay, 'title_score']):
                         timeline_df.at[currdate, 'title_score'] = timeline_df.at[currdate - delay, 'title_score']
-                    if not timeline_df.at[currdate, 'text_score'] and timeline_df.at[currdate - delay, 'text_score']:
+                    if pd.isna(timeline_df.at[currdate, 'text_score']) and not pd.isna(timeline_df.at[currdate - delay, 'text_score']):
                         timeline_df.at[currdate, 'text_score'] = timeline_df.at[currdate - delay, 'text_score']
                     delay += timedelta(days=1)
+                # use neutral score
+                timeline_df['title_score'].replace({np.nan: 50}, inplace=True)
+                timeline_df['text_score'].replace({np.nan: 50}, inplace=True)
             except Exception as e:
                 continue
         return timeline_df
@@ -346,7 +362,7 @@ class AnalyticEngine:
             timeline_df = pd.merge(instrument.df, article_series, left_index=True, right_index=True, how='left')
             timeline_df = timeline_df[['Open', 'Close', 'links']].replace({np.nan: None})
             timeline_df = timeline_df.rename(columns={'Date': 'date', 'Open': 'open', 'Close': 'close'})
-            timeline_df['change'] = timeline_df.apply(lambda row: 100 * (row['close'] - row['open']) / row['close'], axis=1)
+            timeline_df['change'] = timeline_df.apply(lambda row: 100 * (row['close'] - row['open']) / row['open'], axis=1)
             timeline_df.index = pd.to_datetime(timeline_df.index)
 
             timeline_df.name = instrument.id

@@ -25,8 +25,9 @@ if __name__ == '__main__':
 
     engine = AnalyticEngine(symbol_map, startdate, enddate, interval, spark)
     engine.add_all()
+    timeline_df = engine.data['QCOM']['timeline_df']
 
-    # windows = list(range(1, 32))
-    # res_a = engine.analyze_accuracies(windows=windows, save_fig=True, show_fig=False)
-    # res_c = engine.analyze_covs(windows=windows, save_fig=True, show_fig=False)
+    windows = [3, 7, 11, 15] 
+    # a = engine.analyze_accuracies(windows=windows, save_fig=True, show_fig=False)
+    # b = engine.analyze_covs(windows=windows, save_fig=True, show_fig=False)
 
