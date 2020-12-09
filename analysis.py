@@ -28,7 +28,7 @@ class AnalyticEngine:
         self.spark = spark
     
     def graph(self, symbols, window=7):
-        self.add_score_and_accuracy(window=window)
+        self.score_and_predict(symbols, window=window)
         for symbol in symbols:
             fig, axes = plt.subplots(2)
             df_dict = self.data[symbol]
@@ -49,30 +49,37 @@ class AnalyticEngine:
         '''
         analyze accuracies for each symbol given a window length
         '''
+        def safe_divide(a, b):
+            if b == 0:
+                return 0
+            return a / b
+
         res = dict()
-        self.add_score_and_accuracy(window=window)
+        self.score_and_predict(symbols, window=window)
         for symbol in symbols:
             res[symbol] = dict()
             timeline_df = self.data[symbol]['timeline_df']
 
-            title_pos_correct = timeline_df[timeline_df['title_accuracy'] == 100]['title_accuracy'].count();
-            title_hold_correct = timeline_df[timeline_df['title_accuracy'] == 50]['title_accuracy'].count();
-            title_neg_correct = timeline_df[timeline_df['title_accuracy'] == 0]['title_accuracy'].count();
+            title_pos_correct = timeline_df[(timeline_df['title_prediction'] == 'buy') & (timeline_df['title_result'] == 1)].shape[0]
+            title_neg_correct = timeline_df[(timeline_df['title_prediction'] == 'sell') & (timeline_df['title_result'] == 1)].shape[0]
+            title_hold_correct = timeline_df[(timeline_df['title_prediction'] == 'hold') & (timeline_df['title_result'] == 1)].shape[0]
             title_correct = title_pos_correct + title_neg_correct + title_hold_correct
-            text_pos_correct = timeline_df[timeline_df['text_accuracy'] == 100]['text_accuracy'].count();
-            text_hold_correct = timeline_df[timeline_df['text_accuracy'] == 50]['text_accuracy'].count();
-            text_neg_correct = timeline_df[timeline_df['text_accuracy'] == 0]['text_accuracy'].count();
+
+            text_pos_correct = timeline_df[(timeline_df['text_prediction'] == 'buy') & (timeline_df['text_result'] == 1)].shape[0]
+            text_neg_correct = timeline_df[(timeline_df['text_prediction'] == 'sell') & (timeline_df['text_result'] == 1)].shape[0]
+            text_hold_correct = timeline_df[(timeline_df['text_prediction'] == 'hold') & (timeline_df['text_result'] == 1)].shape[0]
             text_correct = text_pos_correct + text_neg_correct + text_hold_correct
 
-            res[symbol]['title_pos_accuracy'] = title_pos_correct / len(timeline_df)
-            res[symbol]['title_neg_accuracy'] = title_neg_correct / len(timeline_df)
-            res[symbol]['title_hold_accuracy'] = title_hold_correct / len(timeline_df)
-            res[symbol]['title_accuracy'] = title_correct / len(timeline_df)
-            res[symbol]['text_pos_accuracy'] = text_pos_correct / len(timeline_df)
-            res[symbol]['text_neg_accuracy'] = text_neg_correct / len(timeline_df)
-            res[symbol]['text_hold_accuracy'] = text_hold_correct / len(timeline_df)
-            res[symbol]['text_accuracy'] = text_correct / len(timeline_df)
+            res[symbol]['title_pos_accuracy'] = safe_divide(title_pos_correct, timeline_df[timeline_df['title_prediction'] == 'buy'].shape[0])
+            res[symbol]['title_neg_accuracy'] = safe_divide(title_neg_correct, timeline_df[timeline_df['title_prediction'] == 'sell'].shape[0])
+            res[symbol]['title_hold_accuracy'] = safe_divide(title_hold_correct, timeline_df[timeline_df['title_prediction'] == 'hold'].shape[0])
+            res[symbol]['title_accuracy'] = safe_divide(title_correct, timeline_df[timeline_df['title_prediction'] != ''].shape[0])
+            res[symbol]['text_pos_accuracy'] = safe_divide(text_pos_correct, timeline_df[timeline_df['text_prediction'] == 'buy'].shape[0])
+            res[symbol]['text_neg_accuracy'] = safe_divide(text_neg_correct, timeline_df[timeline_df['text_prediction'] == 'sell'].shape[0])
+            res[symbol]['text_hold_accuracy'] = safe_divide(text_hold_correct, timeline_df[timeline_df['text_prediction'] == 'hold'].shape[0])
+            res[symbol]['text_accuracy'] = safe_divide(text_correct, timeline_df[timeline_df['text_prediction'] != ''].shape[0])
 
+        print(res)
         for accuracy in ['title_pos_accuracy', 'title_neg_accuracy', 'title_hold_accuracy', 'title_accuracy', 'text_pos_accuracy', 'text_neg_accuracy', 'text_hold_accuracy', 'text_accuracy']:
             plt.bar(symbols, [res[symbol][accuracy] for symbol in symbols], label=accuracy)
 
@@ -126,7 +133,7 @@ class AnalyticEngine:
         res['price_title'] = []
         res['price_text'] = []
         res['title_text'] = []
-        self.add_score_and_accuracy(window=window)
+        self.score_and_predict(symbols, window=window)
         for symbol in symbols:
             df_dict = self.data[symbol]
             res['price_title'].append(df_dict['timeline_df']['change'].cov(df_dict['timeline_df']['title_score']))
@@ -183,8 +190,8 @@ class AnalyticEngine:
         average = lambda scores: sum(scores) / len(scores) if len(scores) > 0 else None
         article_count = 0
         scores = []
-        # days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] # sliding window method
-        days = list(range(window))
+        days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] # sliding window method
+        # days = list(range(window))
         for i, day in enumerate(days):
             article_links = None
             try:
@@ -212,25 +219,39 @@ class AnalyticEngine:
         timeline_df.at[currdate, 'article_count'] = article_count
         final_score = average(scores) 
         return final_score
-    
-    def calc_accuracy(self, score, change):
-        if not score:
-            return -2
-        if (45 < score < 55 and abs(change) < 0.25):
-            return 50
-        elif (score > 50 and change > 0):
-            return 100
-        elif (score < 50 and change < 0):
-            return 0
-        else:
-            return -1
 
-    def add_score_and_accuracy(self, window=7):
+    def predict(self, score):
+        if not score:
+            return ''
+        if 45 < score < 55:
+            return 'hold'
+        elif score > 55:
+            return 'buy'
+        elif score < 45:
+            return 'sell'
+        else:
+            return ''
+
+    def calc_accuracy(self, prediction, change):
+        if not prediction:
+            return -1 
+        if prediction == 'hold' and abs(change) < 0.25:
+            return 1
+        elif prediction == 'buy' and change > 0.25:
+            return 1 
+        elif prediction == 'sell' and change < -0.25:
+            return 1
+        else: 
+            return 0
+
+
+    def score_and_predict(self, symbols, window=7):
         '''
         parallelize this function / use spark
         '''
         print('=> adding scores and calculating accuracies:')
-        for symbol, df_dict in tqdm(self.data.items()):
+        for symbol in tqdm(symbols):
+            df_dict = self.data[symbol]
             article_df = df_dict['article_df']
             timeline_df = df_dict['timeline_df']
             if all([timeline_df.empty, article_df.empty]):
@@ -239,9 +260,14 @@ class AnalyticEngine:
             timeline_df['article_count'] = None
             timeline_df['title_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'title_sentiment', article_df, timeline_df, window))
             timeline_df['text_score'] = timeline_df.index.map(lambda index: self.calc_score(index, 'text_sentiment', article_df, timeline_df, window))
+
             timeline_df = self.fill_score(timeline_df) 
-            timeline_df['title_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['title_score'], row['change']), axis=1)
-            timeline_df['text_accuracy'] = timeline_df.apply(lambda row: self.calc_accuracy(row['text_score'], row['change']), axis=1)
+            
+            timeline_df['title_prediction'] = timeline_df.apply(lambda row: self.predict(row['title_score']), axis=1)
+            timeline_df['text_prediction'] = timeline_df.apply(lambda row: self.predict(row['text_score']), axis=1)
+            
+            timeline_df['title_result'] = timeline_df.apply(lambda row: self.calc_accuracy(row['title_prediction'], row['change']), axis=1)
+            timeline_df['text_result'] = timeline_df.apply(lambda row: self.calc_accuracy(row['text_prediction'], row['change']), axis=1)
             df_dict['timeline_df'] = timeline_df
 
     def fill_score(self, timeline_df, limit = 3):
