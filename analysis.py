@@ -136,9 +136,9 @@ class AnalyticEngine:
         self.score_and_predict(symbols, window=window)
         for symbol in symbols:
             df_dict = self.data[symbol]
-            res['price_title'].append(df_dict['timeline_df']['change'].cov(df_dict['timeline_df']['title_score']))
-            res['price_text'].append(df_dict['timeline_df']['change'].cov(df_dict['timeline_df']['text_score']))
-            res['title_text'].append(df_dict['timeline_df']['title_score'].cov(df_dict['timeline_df']['text_score']))
+            res['price_title'].append((df_dict['timeline_df']['change'] * 10).cov(df_dict['timeline_df']['title_score']))
+            res['price_text'].append((df_dict['timeline_df']['change'] * 10).cov(df_dict['timeline_df']['text_score']))
+            res['title_text'].append((df_dict['timeline_df']['title_score'] * 10).cov(df_dict['timeline_df']['text_score']))
 
         plt.bar(symbols, res['price_title'], label='price change and title_score covariance')
         plt.bar(symbols, res['price_text'], label='price change and text_score covariance')
@@ -190,7 +190,7 @@ class AnalyticEngine:
         average = lambda scores: sum(scores) / len(scores) if len(scores) > 0 else None
         article_count = 0
         scores = []
-        days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] # sliding window method
+        days = [max(window - 3, 0), max(window - 2, 0), max(window - 1, 0), window, window + 1, window + 2, window + 3] 
         # days = list(range(window))
         for i, day in enumerate(days):
             article_links = None
@@ -208,8 +208,6 @@ class AnalyticEngine:
                     sentiment = article[article_df_col]
                     source_url = article['source']['href']
                     score = sentiment 
-                    # if day > 1 and sentiment < 50: # disregard negative sentiments from news more than a day ago
-                    #    continue
                 except:
                     continue
                 scores.append(score)
@@ -383,7 +381,6 @@ class AnalyticEngine:
                     articles_dict[col].append(article.get(col))
 
             article_df = pd.DataFrame.from_dict(articles_dict).set_index('link', drop=False, verify_integrity=True)
-            # article_df['published'] = pd.to_datetime(article_df['published'])
             article_series = article_df.groupby('published')['link'].apply(list).rename('links')
             timeline_df = pd.merge(instrument.df, article_series, left_index=True, right_index=True, how='left')
             timeline_df = timeline_df[['Open', 'Close', 'links']].replace({np.nan: None})
