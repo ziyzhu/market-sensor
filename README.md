@@ -4,7 +4,7 @@ Foresee market behaviors based on Google News ([see my paper](https://github.com
 This project aimed to implement a reusable pipeline for news & stock data and achieve high accuracy in predicting stock price movements with the results of sentiment analysis on related Google News articles. The baseline used to evaluate the prediction accuracies was random coin flipping. 
 
 ## Pipeline / Architecture
-![architecture](https://github.com/zachzhu2016/market-sensor/blob/main/picture/architecture.png)
+![pipeline](https://github.com/zachzhu2016/market-sensor/blob/main/picture/pipeline.png)
 1.	Gathers data from both Google News API and Yahoo Finance API. (cached)
 2.	Downloads article texts. (cached) 
 3.	Adds sentiment value to downloaded articles by using the average of the sentiments of the sentences in article texts, sentences with less than 5 tokens / words were considered invalid and were skipped because sampling had shown that articles tend to have irrelevant data (e.g., phone number). (cached) 
