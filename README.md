@@ -1,5 +1,5 @@
 # Market Sensor
-Foresee market behaviors based on Google News ([see my paper](https://github.com/zachzhu2016/market-sensor/blob/main/picture/marketsensor.pdf)).
+Foresee market behaviors based on Google News ([see my paper](https://github.com/zachzhu2016/market-sensor/blob/main/paper.pdf)).
 
 This project aimed to implement a reusable pipeline for news & stock data and achieve high accuracy in predicting stock price movements with the results of sentiment analysis on related Google News articles. The baseline used to evaluate the prediction accuracies was random coin flipping. 
 
